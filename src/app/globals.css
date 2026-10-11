@@ -225,6 +225,7 @@ select.field { padding-inline-end: 8px; }
 .tiptap .tableWrapper { overflow-x: auto; }
 .tiptap p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--ink-2); float: inline-start; height: 0; pointer-events: none; }
 .file-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 8px 12px; border: 1px solid var(--soft); border-radius: 12px; background: #f7f8fa; color: var(--ink); text-decoration: none !important; }
+.tiptap .file-chip { color: var(--ink); text-decoration: none; }
 .file-chip .file-size { color: var(--ink-2); font-size: 13px; }
 .ProseMirror-selectednode .file-chip, .file-chip.ProseMirror-selectednode { outline: 3px solid var(--accent); }
 

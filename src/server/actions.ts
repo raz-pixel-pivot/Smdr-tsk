@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { attachments, labels, settings, taskLabels, tasks } from "@/db/schema";
 import { LANG_COOKIE } from "@/i18n";
 import { addDays, isValidIso } from "@/lib/dates";
+import { MAX_FILE_BYTES } from "@/lib/limits";
 import type { Attachment, InitialData, Lang } from "@/lib/types";
 import { AuthError, requireUser } from "./auth";
 import { loadAll } from "./data";
@@ -159,10 +160,15 @@ export async function getTaskBody(id: string) {
   });
 }
 
-export async function saveTaskBody(id: string, body: object | null) {
+/** The body arrives as a JSON string: editor attrs are prototype-less objects that
+ *  server action serialization would silently drop. */
+export async function saveTaskBody(id: string, bodyJson: string | null) {
   return run(async (userId) => {
     assertId(id);
-    if (body && JSON.stringify(body).length > 900_000) throw new Error("Notes are too long");
+    if (bodyJson !== null && typeof bodyJson !== "string") throw new Error("Invalid body");
+    if (bodyJson && bodyJson.length > 900_000) throw new Error("Notes are too long");
+    const body = bodyJson ? (JSON.parse(bodyJson) as object) : null;
+    if (body && (body as { type?: string }).type !== "doc") throw new Error("Invalid body");
     await db
       .update(tasks)
       .set({ body, updatedAt: new Date() })
@@ -174,7 +180,7 @@ export async function saveTaskBody(id: string, body: object | null) {
 export async function addAttachment(input: { taskId: string; fileName: string; contentType: string; size: number; url: string }) {
   return run(async (userId) => {
     assertId(input.taskId);
-    if (input.size > 10 * 1024 * 1024) throw new Error("File is larger than 10 MB");
+    if (input.size > MAX_FILE_BYTES) throw new Error("File is larger than 10 MB");
     if (!/^https:\/\/[a-z0-9.-]+\.blob\.vercel-storage\.com\//i.test(input.url)) throw new Error("Invalid file URL");
     const own = await db
       .select({ id: tasks.id })
