@@ -95,6 +95,9 @@ function CarryOver({ tasks, today }: { tasks: Task[]; today: string }) {
   );
 }
 
+// A drag ends with a click on whatever row is under the pointer; swallow it.
+let lastDragEnd = 0;
+
 function OpenList({ tasks, labels, selected, today }: { tasks: Task[]; labels: Label[]; selected: string; today: string }) {
   const reorder = useStore((s) => s.reorder);
   const sensors = useSensors(
@@ -104,6 +107,7 @@ function OpenList({ tasks, labels, selected, today }: { tasks: Task[]; labels: L
   );
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
+    lastDragEnd = Date.now();
     if (!over || active.id === over.id) return;
     const from = tasks.findIndex((x) => x.id === active.id);
     const to = tasks.findIndex((x) => x.id === over.id);
@@ -115,7 +119,7 @@ function OpenList({ tasks, labels, selected, today }: { tasks: Task[]; labels: L
   };
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd} onDragCancel={() => (lastDragEnd = Date.now())}>
       <SortableContext items={tasks.map((x) => x.id)} strategy={verticalListSortingStrategy}>
         {tasks.map((task) => (
           <SortableRow key={task.id} task={task} labels={labels} selected={selected} today={today} />
@@ -134,6 +138,12 @@ function SortableRow({ task, labels, selected, today }: { task: Task; labels: La
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={`sortable ${isDragging ? "is-dragging" : ""}`}
+      onClickCapture={(e) => {
+        if (Date.now() - lastDragEnd < 300) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
       {...pointerListeners}
     >
       <TaskRow

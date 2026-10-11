@@ -56,22 +56,24 @@ export function DateStrip() {
     el.scrollTo({ left: i * STRIDE, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
-  // Grow the range so it always contains the selected day with room to spare.
+  // Grow the range so it always contains the given day with room to spare. Computed
+  // from a ref (not inside a state updater) so the scroll compensation is applied once.
+  const rangeRef = useRef(range);
   const ensureAround = useCallback(
     (iso: string) => {
-      const i = diffDays(iso, range.start);
-      if (i >= EDGE && i < range.count - EDGE) return false;
-      setRange((r) => {
-        const addBefore = Math.max(0, CHUNK - diffDays(iso, r.start));
-        const end = addDays(r.start, r.count - 1);
-        const addAfter = Math.max(0, CHUNK - diffDays(end, iso));
-        // New days on the visual left push content right: compensate the scroll.
-        pendingShift.current += (rtl ? addAfter : addBefore) * STRIDE;
-        return { start: addDays(r.start, -addBefore), count: r.count + addBefore + addAfter };
-      });
+      const r = rangeRef.current;
+      const i = diffDays(iso, r.start);
+      if (i >= EDGE && i < r.count - EDGE) return false;
+      const addBefore = Math.max(0, CHUNK - i);
+      const addAfter = Math.max(0, CHUNK - (r.count - 1 - i));
+      // New days on the visual left push content right: compensate the scroll.
+      pendingShift.current += (rtl ? addAfter : addBefore) * STRIDE;
+      const next = { start: addDays(r.start, -addBefore), count: r.count + addBefore + addAfter };
+      rangeRef.current = next;
+      setRange(next);
       return true;
     },
-    [range, rtl],
+    [rtl],
   );
 
   // A pending request to center the selected day (initial load, day click, Today, jumps).
@@ -107,6 +109,8 @@ export function DateStrip() {
     const el = ref.current;
     if (el && pendingShift.current) {
       el.scrollLeft += pendingShift.current;
+      // An active mouse drag positions from its start point: move that too.
+      if (drag.current) drag.current.left += pendingShift.current;
       pendingShift.current = 0;
     }
     tryCenter();

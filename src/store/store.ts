@@ -277,6 +277,7 @@ export const useStore = create<Store>()((set, get) => {
       if (patch.language) {
         document.documentElement.lang = patch.language;
         document.documentElement.dir = patch.language === "he" ? "rtl" : "ltr";
+        document.cookie = `lang=${patch.language}; path=/; max-age=31536000; samesite=lax`;
       }
       save(
         () => api.updateSettings(patch),

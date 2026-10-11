@@ -12,6 +12,13 @@ import { ToastBar } from "./Toast";
 
 let seeding: Promise<unknown> | null = null;
 
+/** Applies the saved language to the page and remembers it for the next server render. */
+function applyLang(lang: "en" | "he") {
+  document.documentElement.lang = lang;
+  document.documentElement.dir = lang === "he" ? "rtl" : "ltr";
+  document.cookie = `lang=${lang}; path=/; max-age=31536000; samesite=lax`;
+}
+
 export function AppShell({ initial, children }: { initial: InitialData; children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
@@ -21,11 +28,15 @@ export function AppShell({ initial, children }: { initial: InitialData; children
     const store = useStore.getState();
     const today = todayIso();
     store.init(initial);
+    applyLang(initial.settings.language);
     useStore.setState({ today, selected: today });
     setReady(true);
     if (!initial.settings.seeded && !seeding) {
       seeding = seedIfNeeded(today, initial.settings.language).then((res) => {
-        if (res.ok) store.init(res.data);
+        if (res.ok) {
+          store.init(res.data);
+          applyLang(res.data.settings.language);
+        }
       });
     }
     // Roll "today" over at midnight or when the tab comes back.
