@@ -331,7 +331,7 @@ export async function seedIfNeeded(today: string, lang: Lang) {
     const links = taskRows.flatMap((t) => t.labels.map((k) => ({ taskId: t.id, labelId: labelIds.get(k)!, userId })));
     await db.batch([
       db.insert(labels).values(labelRows),
-      db.insert(tasks).values(taskRows.map(({ labels: _l, ...t }) => t)),
+      db.insert(tasks).values(taskRows.map(({ labels: _unused, ...t }) => (void _unused, t))),
       db.insert(taskLabels).values(links),
     ]);
     return loadAll(userId, language);

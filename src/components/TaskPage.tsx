@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getTaskBody } from "@/server/actions";
 import { addDays, isValidIso } from "@/lib/dates";
 import { useStore, useT } from "@/store/store";
@@ -21,6 +21,14 @@ export function TaskPage({ id }: { id: string }) {
 
   const [title, setTitleDraft] = useState(task?.title ?? "");
   const [labelDraft, setLabelDraft] = useState("");
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+  // Grow the title field to fit long titles.
+  useLayoutEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [title]);
   const [body, setBody] = useState<{ loaded: boolean; doc: object | null }>({ loaded: false, doc: null });
 
   useEffect(() => {
@@ -54,8 +62,9 @@ export function TaskPage({ id }: { id: string }) {
     );
   }
 
-  const commitTitle = () => {
-    if (title.trim()) setTitle(id, title.trim());
+  const commitTitle = (value: string) => {
+    const v = value.replace(/\s+/g, " ").trim();
+    if (v) setTitle(id, v);
     else setTitleDraft(task.title);
   };
   const setDate = (date: string) => {
@@ -80,15 +89,20 @@ export function TaskPage({ id }: { id: string }) {
       <section className="card task-card">
         <div className="task-title-row">
           <Checkbox large checked={task.done} label={t("task.toggle")} onChange={() => toggleDone(id)} />
-          <input
+          <textarea
+            ref={titleRef}
             className="task-title"
+            rows={1}
             value={title}
             aria-label={t("task.titleLabel")}
             dir="auto"
-            onChange={(e) => setTitleDraft(e.target.value)}
-            onBlur={commitTitle}
+            onChange={(e) => setTitleDraft(e.target.value.replace(/\n/g, " "))}
+            onBlur={(e) => commitTitle(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                (e.target as HTMLTextAreaElement).blur();
+              }
             }}
           />
         </div>

@@ -39,7 +39,7 @@ type Actions = {
   deleteTask: (id: string) => void;
 
   addLabel: (name: string, attachToTask?: string) => Promise<string | null>;
-  updateLabel: (id: string, patch: Partial<Omit<Label, "id" | "isSample">>) => void;
+  updateLabel: (id: string, patch: Partial<Omit<Label, "id" | "isSample">>) => Promise<boolean>;
   deleteLabel: (id: string) => void;
 
   updateSettings: (patch: Partial<Pick<Settings, "language" | "showCompleted">>) => void;
@@ -52,19 +52,19 @@ let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 export const useStore = create<Store>()((set, get) => {
   /** Runs a server call; on failure restores the given snapshot and shows the error. */
-  async function save<R>(call: () => Promise<Result<R>>, revert?: () => void): Promise<R | null> {
+  async function save<R>(call: () => Promise<Result<R>>, revert?: () => void): Promise<boolean> {
     let res: Result<R>;
     try {
       res = await call();
     } catch (e) {
       res = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
-    if (res.ok) return res.data;
+    if (res.ok) return true;
     revert?.();
     const t = get().t();
     const msg = res.error === "nameTaken" ? t("projects.nameTaken") : t("toast.saveFailed", { error: res.error });
     get().showToast(msg, undefined, "error");
-    return null;
+    return false;
   }
 
   const patchTask = (id: string, patch: Partial<Task>) =>
@@ -72,7 +72,8 @@ export const useStore = create<Store>()((set, get) => {
   const putTask = (task: Task) => set((s) => ({ tasks: { ...s.tasks, [task.id]: task } }));
   const dropTask = (id: string) =>
     set((s) => {
-      const { [id]: _gone, ...rest } = s.tasks;
+      const rest = { ...s.tasks };
+      delete rest[id];
       return { tasks: rest };
     });
 
@@ -227,15 +228,15 @@ export const useStore = create<Store>()((set, get) => {
           if (prevTask) patchTask(prevTask.id, { labelIds: prevTask.labelIds });
         },
       );
-      return ok === null ? null : label.id;
+      return ok ? label.id : null;
     },
 
-    updateLabel: (id, patch) => {
+    updateLabel: async (id, patch) => {
       const prev = get().labels.find((l) => l.id === id);
-      if (!prev) return;
-      if (patch.name !== undefined && !patch.name.trim()) return;
+      if (!prev) return false;
+      if (patch.name !== undefined && !patch.name.trim()) return false;
       set((s) => ({ labels: s.labels.map((l) => (l.id === id ? { ...l, ...patch } : l)) }));
-      save(
+      return save(
         () => api.updateLabel(id, patch),
         () => set((s) => ({ labels: s.labels.map((l) => (l.id === id ? prev : l)) })),
       );

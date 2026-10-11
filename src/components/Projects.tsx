@@ -170,7 +170,11 @@ function LabelCard({ label, tasks, editing, onEdit }: { label: Label; tasks: Rec
               className="field"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onBlur={() => (name.trim() ? updateLabel(label.id, { name: name.trim() }) : setName(label.name))}
+              onBlur={async (e) => {
+                const v = e.target.value.trim();
+                if (!v) return setName(label.name);
+                if (v !== label.name && !(await updateLabel(label.id, { name: v }))) setName(label.name);
+              }}
               onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
             />
           </label>
@@ -181,7 +185,7 @@ function LabelCard({ label, tasks, editing, onEdit }: { label: Label; tasks: Rec
               value={owner}
               placeholder={t("projects.ownerPlaceholder")}
               onChange={(e) => setOwner(e.target.value)}
-              onBlur={() => owner.trim() !== (label.owner ?? "") && updateLabel(label.id, { owner: owner.trim() || null })}
+              onBlur={(e) => e.target.value.trim() !== (label.owner ?? "") && updateLabel(label.id, { owner: e.target.value.trim() || null })}
               onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
             />
           </label>
