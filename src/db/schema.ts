@@ -45,6 +45,7 @@ export const labels = pgTable(
     name: text("name").notNull(),
     color: text("color").notNull(),
     owner: text("owner"),
+    ownerEmail: text("owner_email"),
     startDate: date("start_date", { mode: "string" }),
     endDate: date("end_date", { mode: "string" }),
     isSample: boolean("is_sample").notNull().default(false),
@@ -84,10 +85,43 @@ export const attachments = pgTable(
     fileName: text("file_name").notNull(),
     contentType: text("content_type").notNull(),
     size: integer("size").notNull(),
+    // Private blob URL; only the server reads it.
     url: text("url").notNull(),
+    // Set when the file is shared publicly: /s/<token> serves it to anyone.
+    publicToken: text("public_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("attachments_task_idx").on(t.taskId)],
+  (t) => [index("attachments_task_idx").on(t.taskId), uniqueIndex("attachments_public_token_uq").on(t.publicToken)],
+);
+
+/** A task shared by its owner with another person, by (lowercase) email. */
+export const taskShares = pgTable(
+  "task_shares",
+  {
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role", { enum: ["view", "edit"] }).notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.taskId, t.email] }), index("task_shares_email_idx").on(t.email)],
+);
+
+/** A user's Google Calendar event for a task (created from the task, or imported). */
+export const calendarLinks = pgTable(
+  "calendar_links",
+  {
+    userId: text("user_id").notNull(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    eventId: text("event_id").notNull(),
+    htmlLink: text("html_link").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.taskId] }), uniqueIndex("calendar_links_user_event_uq").on(t.userId, t.eventId)],
 );
 
 export const settings = pgTable("settings", {

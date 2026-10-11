@@ -59,3 +59,16 @@ export const IconChevron = ({ size = 14, className }: P) => (
     <path d="m4 6 4 4 4-4" />
   </svg>
 );
+export const IconShare = ({ size = 14, className }: P) => (
+  <svg viewBox="0 0 16 16" className={className} {...base(size)}>
+    <circle cx="5.5" cy="5.5" r="2.3" />
+    <path d="M1.5 13.5c.4-2.2 2-3.5 4-3.5s3.6 1.3 4 3.5" />
+    <circle cx="11.5" cy="5" r="1.8" />
+    <path d="M11 8.6c1.8 0 3.1 1.1 3.5 3" />
+  </svg>
+);
+export const IconClose = ({ size = 16, className }: P) => (
+  <svg viewBox="0 0 16 16" className={className} {...base(size)} strokeWidth={2}>
+    <path d="m4 4 8 8M12 4l-8 8" />
+  </svg>
+);

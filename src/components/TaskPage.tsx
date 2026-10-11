@@ -5,9 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getTaskBody } from "@/server/actions";
 import { addDays, isValidIso } from "@/lib/dates";
+import type { Attachment } from "@/lib/types";
 import { useStore, useT } from "@/store/store";
+import { CalendarCard } from "./CalendarCard";
 import { Checkbox } from "./Checkbox";
 import { Editor } from "./Editor";
+import { FilesCard } from "./FilesCard";
+import { ShareCard, SharedBanner } from "./ShareCard";
 import { IconBack, IconPlus } from "./icons";
 
 export function TaskPage({ id }: { id: string }) {
@@ -17,7 +21,7 @@ export function TaskPage({ id }: { id: string }) {
   const task = useStore((s) => s.tasks[id]);
   const labels = useStore((s) => s.labels);
   const today = useStore((s) => s.today);
-  const { setTitle, toggleDone, moveTask, setTaskLabels, deleteTask, addLabel, select } = useStore.getState();
+  const { setTitle, toggleDone, moveTask, setTaskLabels, deleteTask, leaveTask, addLabel, select } = useStore.getState();
 
   const [title, setTitleDraft] = useState(task?.title ?? "");
   const [labelDraft, setLabelDraft] = useState("");
@@ -30,11 +34,14 @@ export function TaskPage({ id }: { id: string }) {
     el.style.height = `${el.scrollHeight}px`;
   }, [title]);
   const [body, setBody] = useState<{ loaded: boolean; doc: object | null }>({ loaded: false, doc: null });
+  const [files, setFiles] = useState<Attachment[]>([]);
 
   useEffect(() => {
     let alive = true;
     getTaskBody(id).then((res) => {
-      if (alive) setBody({ loaded: true, doc: res.ok ? res.data.body : null });
+      if (!alive) return;
+      setBody({ loaded: true, doc: res.ok ? res.data.body : null });
+      if (res.ok) setFiles(res.data.attachments);
     });
     return () => {
       alive = false;
@@ -62,6 +69,13 @@ export function TaskPage({ id }: { id: string }) {
     );
   }
 
+  const canEdit = task.access !== "view";
+  const isOwner = task.access === "owner";
+  const leave = () => {
+    leaveTask(id);
+    router.push(backHref);
+  };
+
   const commitTitle = (value: string) => {
     const v = value.replace(/\s+/g, " ").trim();
     if (v) setTitle(id, v);
@@ -87,9 +101,11 @@ export function TaskPage({ id }: { id: string }) {
       </Link>
 
       <section className="card task-card">
+        {!isOwner && <SharedBanner task={task} onLeave={leave} />}
         <div className="task-title-row">
-          <Checkbox large checked={task.done} label={t("task.toggle")} onChange={() => toggleDone(id)} />
+          <Checkbox large checked={task.done} disabled={!canEdit} label={t("task.toggle")} onChange={() => toggleDone(id)} />
           <textarea
+            readOnly={!canEdit}
             ref={titleRef}
             className="task-title"
             rows={1}
@@ -109,16 +125,20 @@ export function TaskPage({ id }: { id: string }) {
 
         <div className="section-label">{t("task.date")}</div>
         <div className="wrap-row">
-          <input type="date" className="field" value={task.date} aria-label={t("task.dateLabel")} onChange={(e) => setDate(e.target.value)} />
-          <button className="btn" onClick={() => setDate(today)}>
-            {t("task.today")}
-          </button>
-          <button className="btn" onClick={() => setDate(addDays(today, 1))}>
-            {t("task.tomorrow")}
-          </button>
-          <button className="btn" onClick={() => setDate(addDays(task.date, 7))}>
-            {t("task.inAWeek")}
-          </button>
+          <input type="date" className="field" value={task.date} disabled={!canEdit} aria-label={t("task.dateLabel")} onChange={(e) => setDate(e.target.value)} />
+          {canEdit && (
+            <>
+              <button className="btn" onClick={() => setDate(today)}>
+                {t("task.today")}
+              </button>
+              <button className="btn" onClick={() => setDate(addDays(today, 1))}>
+                {t("task.tomorrow")}
+              </button>
+              <button className="btn" onClick={() => setDate(addDays(task.date, 7))}>
+                {t("task.inAWeek")}
+              </button>
+            </>
+          )}
         </div>
 
         <div className="section-label">{t("task.labels")}</div>
@@ -154,17 +174,33 @@ export function TaskPage({ id }: { id: string }) {
         </div>
       </section>
 
-      {body.loaded ? <Editor key={id} taskId={id} initial={body.doc} /> : <section className="card editor-card" style={{ minHeight: 400 }} aria-busy="true" />}
+      {body.loaded ? (
+        <Editor key={id} taskId={id} initial={body.doc} editable={canEdit} onUploaded={(f) => setFiles((list) => [...list, f])} />
+      ) : (
+        <section className="card editor-card" style={{ minHeight: 400 }} aria-busy="true" />
+      )}
 
-      <button
-        className="btn-link delete-task"
-        onClick={() => {
-          deleteTask(id);
-          router.push(backHref);
-        }}
-      >
-        {t("task.delete")}
-      </button>
+      <div className="side-cards">
+        {isOwner && <ShareCard task={task} />}
+        <FilesCard files={files} canEdit={canEdit} onChange={(f) => setFiles((list) => list.map((x) => (x.id === f.id ? f : x)))} />
+        <CalendarCard task={task} />
+      </div>
+
+      {isOwner ? (
+        <button
+          className="btn-link delete-task"
+          onClick={() => {
+            deleteTask(id);
+            router.push(backHref);
+          }}
+        >
+          {t("task.delete")}
+        </button>
+      ) : (
+        <button className="btn-link delete-task" onClick={leave}>
+          {t("share.leave")}
+        </button>
+      )}
     </div>
   );
 }

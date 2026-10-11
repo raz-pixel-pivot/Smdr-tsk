@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { EditorContent, useEditor, useEditorState, type Editor as TEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import TextAlign from "@tiptap/extension-text-align";
@@ -13,12 +13,23 @@ import { Placeholder } from "@tiptap/extensions";
 import { upload } from "@vercel/blob/client";
 import { addAttachment, saveTaskBody } from "@/server/actions";
 import { MAX_FILE_BYTES } from "@/lib/limits";
-import { useStore, useT } from "@/store/store";
+import { HIGHLIGHT_COLORS, TEXT_COLORS } from "@/lib/palette";
+import type { Attachment } from "@/lib/types";
+import { errorText, useStore, useT } from "@/store/store";
+import { ColorSwatches } from "./ColorSwatches";
 import { FileAttachment } from "./FileAttachment";
 
-const TEXT_COLOR = "#C22F33";
-
-export function Editor({ taskId, initial }: { taskId: string; initial: object | null }) {
+export function Editor({
+  taskId,
+  initial,
+  editable = true,
+  onUploaded,
+}: {
+  taskId: string;
+  initial: object | null;
+  editable?: boolean;
+  onUploaded?: (file: Attachment) => void;
+}) {
   const t = useT();
   const setHasBody = useStore((s) => s.setHasBody);
   const showToast = useStore((s) => s.showToast);
@@ -32,6 +43,7 @@ export function Editor({ taskId, initial }: { taskId: string; initial: object | 
 
   const editor = useEditor({
     immediatelyRender: false,
+    editable,
     extensions: [
       StarterKit.configure({
         heading: { levels: [2, 3] },
@@ -40,7 +52,7 @@ export function Editor({ taskId, initial }: { taskId: string; initial: object | 
         code: false,
       }),
       TextAlign.configure({ types: ["heading", "paragraph"], alignments: ["start", "center", "end"], defaultAlignment: null }),
-      Highlight.configure({ multicolor: false }),
+      Highlight.configure({ multicolor: true }),
       TextStyle,
       Color,
       Table.configure({ resizable: false }),
@@ -74,6 +86,11 @@ export function Editor({ taskId, initial }: { taskId: string; initial: object | 
   });
   edRef.current = editor;
 
+  // Follow permission changes (e.g. the owner switches someone to "Can edit").
+  useEffect(() => {
+    if (editor && editor.isEditable !== editable) editor.setEditable(editable);
+  }, [editor, editable]);
+
   // Saves shortly after typing stops, and immediately when leaving the page.
   function scheduleSave(ed: TEditor) {
     clearTimeout(timer.current);
@@ -85,7 +102,7 @@ export function Editor({ taskId, initial }: { taskId: string; initial: object | 
       const res = await saveTaskBody(taskId, json);
       setStatus("");
       if (res.ok) setHasBody(taskId, !empty);
-      else showToast(t("toast.saveFailed", { error: res.error }), undefined, "error");
+      else showToast(errorText(t, res.error), undefined, "error");
     };
     pending.current = run;
     timer.current = setTimeout(run, 600);
@@ -114,19 +131,23 @@ export function Editor({ taskId, initial }: { taskId: string; initial: object | 
     try {
       const safe = file.name.replace(/[^\p{L}\p{N}._-]+/gu, "-").slice(-120) || "file";
       const blob = await upload(`tasks/${taskId}/${safe}`, file, {
-        access: "public",
+        access: "private",
         handleUploadUrl: "/api/upload",
         clientPayload: JSON.stringify({ taskId }),
         contentType: file.type || undefined,
       });
-      await addAttachment({ taskId, fileName: file.name, contentType: file.type || "application/octet-stream", size: file.size, url: blob.url });
+      const res = await addAttachment({ taskId, fileName: file.name, contentType: file.type || "application/octet-stream", size: file.size, url: blob.url });
+      if (!res.ok) throw new Error(errorText(t, res.error));
+      const att = res.data;
+      onUploaded?.(att);
+      // The editor links to the app's own file address, which checks access.
       const node = file.type.startsWith("image/")
-        ? { type: "image", attrs: { src: blob.url, alt: file.name } }
-        : { type: "fileAttachment", attrs: { href: blob.url, name: file.name, size: file.size, contentType: file.type } };
+        ? { type: "image", attrs: { src: att.url, alt: file.name } }
+        : { type: "fileAttachment", attrs: { href: att.url, name: file.name, size: file.size, contentType: file.type } };
       // A trailing paragraph moves the cursor past the new node, so the next insert doesn't replace it.
       editor.chain().focus().insertContent([node, { type: "paragraph" }]).run();
     } catch (e) {
-      showToast(t("toast.saveFailed", { error: e instanceof Error ? e.message : String(e) }), undefined, "error");
+      showToast(e instanceof Error ? e.message : String(e), undefined, "error");
     } finally {
       setStatus("");
     }
@@ -134,7 +155,7 @@ export function Editor({ taskId, initial }: { taskId: string; initial: object | 
 
   return (
     <section className="card editor-card">
-      {editor && <Toolbar editor={editor} onImage={() => imageInput.current?.click()} onFile={() => fileInput.current?.click()} />}
+      {editor && editable && <Toolbar editor={editor} onImage={() => imageInput.current?.click()} onFile={() => fileInput.current?.click()} />}
       <div className="editor-status" aria-live="polite">
         {status}
       </div>
@@ -180,6 +201,86 @@ const B = ({ on, label, onClick, children, disabled, style }: { on?: boolean; la
 );
 const Sep = () => <span className="tool-sep" aria-hidden />;
 
+/** A toolbar button that opens a small panel of color swatches. */
+function ColorMenu({
+  label,
+  title,
+  colors,
+  value,
+  noneLabel,
+  onPick,
+  onNone,
+  children,
+}: {
+  label: string;
+  title: string;
+  colors: string[];
+  value: string | null;
+  noneLabel: string;
+  onPick: (color: string) => void;
+  onNone: () => void;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !wrap.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("touchstart", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("touchstart", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [open]);
+  return (
+    <div className="tool-menu" ref={wrap}>
+      <button
+        type="button"
+        className={`tool ${value ? "on-soft" : ""}`}
+        aria-label={label}
+        title={label}
+        aria-expanded={open}
+        aria-controls={id}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen(!open)}
+      >
+        {children}
+        <span className="caret" aria-hidden>▾</span>
+      </button>
+      {open && (
+        <div className="color-pop" id={id} role="group" aria-label={title}>
+          <ColorSwatches
+            colors={colors}
+            value={value}
+            keepFocus
+            onPick={(color) => {
+              onPick(color);
+              setOpen(false);
+            }}
+          />
+          <button
+            type="button"
+            className="btn-link color-none"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onNone();
+              setOpen(false);
+            }}
+          >
+            {noneLabel}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Toolbar({ editor, onImage, onFile }: { editor: TEditor; onImage: () => void; onFile: () => void }) {
   const t = useT();
   const s = useEditorState({
@@ -197,8 +298,8 @@ function Toolbar({ editor, onImage, onFile }: { editor: TEditor; onImage: () => 
       start: e.isActive({ textAlign: "start" }),
       center: e.isActive({ textAlign: "center" }),
       end: e.isActive({ textAlign: "end" }),
-      highlight: e.isActive("highlight"),
-      color: e.isActive("textStyle", { color: TEXT_COLOR }),
+      highlight: (e.getAttributes("highlight").color as string | undefined) ?? (e.isActive("highlight") ? HIGHLIGHT_COLORS[0] : null),
+      color: (e.getAttributes("textStyle").color as string | undefined) ?? null,
       link: e.isActive("link"),
       table: e.isActive("table"),
       canUndo: e.can().undo(),
@@ -238,17 +339,28 @@ function Toolbar({ editor, onImage, onFile }: { editor: TEditor; onImage: () => 
         <AlignIcon kind="end" />
       </B>
       <Sep />
-      <B on={s.highlight} label={t("toolbar.highlight")} onClick={() => c().toggleHighlight().run()}>
-        <span style={{ background: "#FFE58A", padding: "0 4px", borderRadius: 3 }}>{t("toolbar.highlight")}</span>
-      </B>
-      <B
-        on={s.color}
-        label={t("toolbar.color")}
-        onClick={() => (s.color ? c().unsetColor().run() : c().setColor(TEXT_COLOR).run())}
-        style={{ color: TEXT_COLOR, fontWeight: 700 }}
+      <ColorMenu
+        label={t("colors.highlight")}
+        title={t("colors.highlight")}
+        colors={HIGHLIGHT_COLORS}
+        value={s.highlight}
+        noneLabel={t("colors.noHighlight")}
+        onPick={(color) => c().setHighlight({ color }).run()}
+        onNone={() => c().unsetHighlight().run()}
       >
-        {t("toolbar.color")}
-      </B>
+        <span style={{ background: s.highlight ?? HIGHLIGHT_COLORS[0], padding: "0 4px", borderRadius: 3 }}>{t("toolbar.highlight")}</span>
+      </ColorMenu>
+      <ColorMenu
+        label={t("colors.text")}
+        title={t("colors.text")}
+        colors={TEXT_COLORS}
+        value={s.color}
+        noneLabel={t("colors.none")}
+        onPick={(color) => c().setColor(color).run()}
+        onNone={() => c().unsetColor().run()}
+      >
+        <span style={{ color: s.color ?? TEXT_COLORS[0], fontWeight: 700 }}>{t("toolbar.color")}</span>
+      </ColorMenu>
       <B
         on={s.link}
         label={t("toolbar.link")}

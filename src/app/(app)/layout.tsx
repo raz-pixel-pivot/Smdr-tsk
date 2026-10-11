@@ -10,9 +10,9 @@ export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const lang = await requestLang();
-  const { userId, allowed, email } = await checkUser();
+  const { me, allowed, email } = await checkUser();
 
-  if (!userId) redirect("/sign-in");
+  if (!me) redirect("/sign-in");
   if (!allowed) {
     const t = makeT(lang);
     return (
@@ -28,6 +28,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const data = await loadAll(userId, lang);
+  const data = await loadAll(me, lang);
   return <AppShell initial={data}>{children}</AppShell>;
 }

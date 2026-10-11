@@ -15,12 +15,12 @@ import {
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { addDays, diffDays, formatDate } from "@/lib/dates";
-import { carryOver, relDay, shortDay, tasksOn } from "@/lib/derive";
+import { carryOver, relDay, shareLine, shortDay, tasksOn } from "@/lib/derive";
 import type { Label, Task } from "@/lib/types";
 import { useLang, useStore, useT } from "@/store/store";
 import { DateStrip } from "./DateStrip";
 import { Checkbox } from "./Checkbox";
-import { IconGrip, IconNote, IconPlus } from "./icons";
+import { IconGrip, IconNote, IconPlus, IconShare } from "./icons";
 
 export function Daily() {
   const t = useT();
@@ -79,16 +79,23 @@ function CarryOver({ tasks, today }: { tasks: Task[]; today: string }) {
       <h2 className="card-head">{t("daily.stillOpen")}</h2>
       {tasks.map((task) => (
         <div className="row carry-row" key={task.id}>
-          <Checkbox checked={false} label={t("daily.markDone", { title: task.title })} onChange={() => toggleDone(task.id, t("toast.markedDone"))} />
+          <Checkbox
+            checked={false}
+            disabled={task.access === "view"}
+            label={t("daily.markDone", { title: task.title })}
+            onChange={() => toggleDone(task.id, t("toast.markedDone"))}
+          />
           <Link href={`/task/${task.id}?from=daily`} className="row-main">
             <span className="row-title">{task.title}</span>
             <span className="row-sub danger">
               {diffDays(task.date, today) === -1 ? t("daily.fromYesterday") : t("daily.fromDate", { date: formatDate.short(task.date, lang) })}
             </span>
           </Link>
-          <button className="chip-btn" onClick={() => moveTask(task.id, today, t("toast.movedToday"))}>
-            {t("daily.toToday")}
-          </button>
+          {task.access !== "view" && (
+            <button className="chip-btn" onClick={() => moveTask(task.id, today, t("toast.movedToday"))}>
+              {t("daily.toToday")}
+            </button>
+          )}
         </div>
       ))}
     </section>
@@ -131,7 +138,8 @@ function OpenList({ tasks, labels, selected, today }: { tasks: Task[]; labels: L
 
 function SortableRow({ task, labels, selected, today }: { task: Task; labels: Label[]; selected: string; today: string }) {
   const t = useT();
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
+  const viewOnly = task.access === "view";
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, disabled: viewOnly });
   const { onKeyDown, ...pointerListeners } = listeners ?? {};
   return (
     <div
@@ -152,7 +160,7 @@ function SortableRow({ task, labels, selected, today }: { task: Task; labels: La
         selected={selected}
         today={today}
         handle={
-          <button ref={setActivatorNodeRef} className="grip" {...attributes} onKeyDown={onKeyDown as React.KeyboardEventHandler<HTMLButtonElement> | undefined} aria-label={t("daily.dragHandle", { title: task.title })}>
+          viewOnly ? undefined : <button ref={setActivatorNodeRef} className="grip" {...attributes} onKeyDown={onKeyDown as React.KeyboardEventHandler<HTMLButtonElement> | undefined} aria-label={t("daily.dragHandle", { title: task.title })}>
             <IconGrip />
           </button>
         }
@@ -167,19 +175,29 @@ function TaskRow({ task, labels, selected, today, handle }: { task: Task; labels
   const toggleDone = useStore((s) => s.toggleDone);
   const moveTask = useStore((s) => s.moveTask);
   const chips = labels.filter((l) => task.labelIds.includes(l.id));
+  const shared = shareLine(task, t);
+  const viewOnly = task.access === "view";
   const next = addDays(task.date, 1);
   const isToday = selected === today;
   return (
     <div className={`row task-row ${task.done ? "done" : ""}`}>
       <Checkbox
         checked={task.done}
+        disabled={viewOnly}
         label={t(task.done ? "daily.markOpen" : "daily.markDone", { title: task.title })}
         onChange={() => toggleDone(task.id)}
       />
       <Link href={`/task/${task.id}?from=daily`} className="row-main" draggable={false}>
         <span className="row-title">{task.title}</span>
-        {(chips.length > 0 || task.hasBody) && (
+        {(chips.length > 0 || task.hasBody || shared) && (
           <span className="row-sub">
+            {shared && (
+              <span className="share-mark">
+                <IconShare />
+                {shared}
+                {viewOnly && <span className="muted"> · {t("share.viewOnly").replace(/\.$/, "")}</span>}
+              </span>
+            )}
             {chips.map((c) => (
               <span key={c.id} style={{ color: c.color }}>
                 {c.name}
@@ -194,7 +212,7 @@ function TaskRow({ task, labels, selected, today, handle }: { task: Task; labels
           </span>
         )}
       </Link>
-      {!task.done && (
+      {!task.done && !viewOnly && (
         <button
           className="post-btn"
           aria-label={t("daily.postponeAria", { title: task.title })}

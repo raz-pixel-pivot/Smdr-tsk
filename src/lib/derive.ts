@@ -93,3 +93,15 @@ export function taskOwners(task: Task, labels: Label[]): (string | null)[] {
 }
 
 export { addDays };
+
+/** "smadar" from "smadar@gmail.com": short enough for a list row. */
+export const nameOf = (email: string) => email.split("@")[0];
+
+/** One line saying who a task is shared with, or who shared it; null if not shared. */
+export function shareLine(task: Task, t: T): string | null {
+  if (task.sharedBy) return t("share.from", { name: nameOf(task.sharedBy) });
+  if (!task.sharedWith.length) return null;
+  const names = task.sharedWith.slice(0, 2).map((s) => nameOf(s.email)).join(", ");
+  const more = task.sharedWith.length - 2;
+  return t("share.withList", { names: more > 0 ? t("share.withMore", { names, n: more }) : names });
+}

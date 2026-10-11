@@ -6,7 +6,7 @@ import type { Result } from "@/server/actions";
 import { makeT, type T } from "@/i18n";
 import { todayIso } from "@/lib/dates";
 import { nextColor } from "@/lib/palette";
-import type { InitialData, Label, Lang, Settings, Task } from "@/lib/types";
+import type { InitialData, Label, Lang, Settings, Share, ShareRole, Task } from "@/lib/types";
 
 export type Toast = { id: number; text: string; kind: "info" | "error"; undo?: () => void };
 
@@ -37,6 +37,10 @@ type Actions = {
   setTaskLabels: (id: string, labelIds: string[]) => void;
   setHasBody: (id: string, hasBody: boolean) => void;
   deleteTask: (id: string) => void;
+  leaveTask: (id: string) => void;
+  shareTask: (id: string, email: string, role: ShareRole) => Promise<boolean>;
+  unshareTask: (id: string, email: string) => void;
+  setCalendarLink: (id: string, link: string) => void;
 
   addLabel: (name: string, attachToTask?: string) => Promise<string | null>;
   updateLabel: (id: string, patch: Partial<Omit<Label, "id" | "isSample">>) => Promise<boolean>;
@@ -46,6 +50,18 @@ type Actions = {
 };
 
 export type Store = State & Actions;
+
+/** Server error codes that have their own wording. */
+export function errorText(t: T, error: string) {
+  if (error === "nameTaken") return t("projects.nameTaken");
+  if (error === "invalidEmail") return t("share.invalidEmail");
+  if (error === "shareSelf") return t("share.self");
+  if (error === "calendarNotConnected") return t("calendar.notConnected");
+  if (error === "View only") return t("share.viewOnlyError");
+  return t("toast.saveFailed", { error });
+}
+
+const canEdit = (task: Task | undefined): task is Task => !!task && task.access !== "view";
 
 let toastSeq = 0;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -61,8 +77,7 @@ export const useStore = create<Store>()((set, get) => {
     }
     if (res.ok) return true;
     revert?.();
-    const t = get().t();
-    const msg = res.error === "nameTaken" ? t("projects.nameTaken") : t("toast.saveFailed", { error: res.error });
+    const msg = errorText(get().t(), res.error);
     get().showToast(msg, undefined, "error");
     return false;
   }
@@ -130,6 +145,10 @@ export const useStore = create<Store>()((set, get) => {
         labelIds,
         hasBody: false,
         isSample: false,
+        access: "owner",
+        sharedBy: null,
+        sharedWith: [],
+        calendarLink: null,
       };
       putTask(task);
       save(() => api.createTask({ id: task.id, date, title: task.title, sortOrder, labelIds }), () => dropTask(task.id));
@@ -137,14 +156,14 @@ export const useStore = create<Store>()((set, get) => {
 
     setTitle: (id, title) => {
       const prev = get().tasks[id];
-      if (!prev || !title.trim() || title === prev.title) return;
+      if (!canEdit(prev) || !title.trim() || title === prev.title) return;
       patchTask(id, { title });
       save(() => api.updateTask(id, { title }), () => patchTask(id, { title: prev.title }));
     },
 
     toggleDone: (id, toastText) => {
       const prev = get().tasks[id];
-      if (!prev) return;
+      if (!canEdit(prev)) return;
       const done = !prev.done;
       patchTask(id, { done, doneAt: done ? new Date().toISOString() : null });
       const revert = () => patchTask(id, { done: prev.done, doneAt: prev.doneAt });
@@ -158,7 +177,7 @@ export const useStore = create<Store>()((set, get) => {
 
     moveTask: (id, date, toastText) => {
       const prev = get().tasks[id];
-      if (!prev || prev.date === date) return;
+      if (!canEdit(prev) || prev.date === date) return;
       // Lands at the end of the target day.
       const sortOrder = Object.values(get().tasks).reduce((m, t) => (t.date === date ? Math.max(m, t.sortOrder) : m), 0) + 1;
       patchTask(id, { date, sortOrder });
@@ -173,7 +192,7 @@ export const useStore = create<Store>()((set, get) => {
 
     reorder: (id, sortOrder) => {
       const prev = get().tasks[id];
-      if (!prev) return;
+      if (!canEdit(prev)) return;
       patchTask(id, { sortOrder });
       save(() => api.updateTask(id, { sortOrder }), () => patchTask(id, { sortOrder: prev.sortOrder }));
     },
@@ -190,6 +209,7 @@ export const useStore = create<Store>()((set, get) => {
     deleteTask: (id) => {
       const prev = get().tasks[id];
       if (!prev) return;
+      if (prev.access !== "owner") return get().leaveTask(id);
       dropTask(id);
       save(() => api.deleteTask(id), () => putTask(prev));
       get().showToast(get().t()("toast.deleted"), () => {
@@ -197,6 +217,38 @@ export const useStore = create<Store>()((set, get) => {
         save(() => api.restoreTask(id), () => dropTask(id));
       });
     },
+
+    leaveTask: (id) => {
+      const prev = get().tasks[id];
+      if (!prev || prev.access === "owner") return;
+      dropTask(id);
+      save(() => api.leaveTask(id), () => putTask(prev));
+      get().showToast(get().t()("share.left"));
+    },
+
+    shareTask: async (id, email, role) => {
+      let res: Result<Share[]>;
+      try {
+        res = await api.shareTask(id, email, role);
+      } catch (e) {
+        res = { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+      if (!res.ok) {
+        get().showToast(errorText(get().t(), res.error), undefined, "error");
+        return false;
+      }
+      patchTask(id, { sharedWith: res.data });
+      return true;
+    },
+
+    unshareTask: (id, email) => {
+      const prev = get().tasks[id];
+      if (!prev) return;
+      patchTask(id, { sharedWith: prev.sharedWith.filter((s) => s.email !== email) });
+      save(() => api.unshareTask(id, email), () => patchTask(id, { sharedWith: prev.sharedWith }));
+    },
+
+    setCalendarLink: (id, link) => patchTask(id, { calendarLink: link }),
 
     addLabel: async (name, attachToTask) => {
       const clean = name.trim();
@@ -214,6 +266,7 @@ export const useStore = create<Store>()((set, get) => {
         name: clean,
         color: nextColor(get().labels.length),
         owner: null,
+        ownerEmail: null,
         startDate: null,
         endDate: null,
         isSample: false,

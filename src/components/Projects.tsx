@@ -7,6 +7,7 @@ import { byOrder, labelTasks, rangeText, shortDay, taskOwners } from "@/lib/deri
 import { LABEL_PALETTE } from "@/lib/palette";
 import type { Label, Task } from "@/lib/types";
 import { useLang, useStore, useT } from "@/store/store";
+import { ColorSwatches } from "./ColorSwatches";
 import { IconPlus } from "./icons";
 
 const NO_OWNER = "\u0000none";
@@ -130,9 +131,11 @@ function LabelCard({ label, tasks, editing, onEdit }: { label: Label; tasks: Rec
 
   const [name, setName] = useState(label.name);
   const [owner, setOwner] = useState(label.owner ?? "");
+  const [ownerEmail, setOwnerEmail] = useState(label.ownerEmail ?? "");
   const nameRef = useRef<HTMLInputElement>(null);
   useEffect(() => setName(label.name), [label.name]);
   useEffect(() => setOwner(label.owner ?? ""), [label.owner]);
+  useEffect(() => setOwnerEmail(label.ownerEmail ?? ""), [label.ownerEmail]);
   useEffect(() => {
     if (editing && label.name && nameRef.current && document.activeElement?.tagName !== "INPUT") nameRef.current.focus({ preventScroll: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -151,7 +154,21 @@ function LabelCard({ label, tasks, editing, onEdit }: { label: Label; tasks: Rec
           </button>
         </div>
         <div className="small muted">
-          {label.owner ? t("projects.ownerIs", { owner: label.owner }) : t("projects.noOwner")} · {rangeText(label, its, lang, t)}
+          {label.owner || label.ownerEmail ? (
+            <>
+              {t("projects.ownerIs", { owner: "" })}
+              {label.ownerEmail ? (
+                <a href={`mailto:${label.ownerEmail}`} title={t("projects.emailOwner", { owner: label.owner || label.ownerEmail })}>
+                  {label.owner || label.ownerEmail}
+                </a>
+              ) : (
+                label.owner
+              )}
+            </>
+          ) : (
+            t("projects.noOwner")
+          )}{" "}
+          · {rangeText(label, its, lang, t)}
         </div>
         <div className="small muted" style={{ marginBlockStart: 2 }}>
           {its.length ? t("projects.progress", { done, total: its.length }) : t("projects.noTasks")}
@@ -163,7 +180,7 @@ function LabelCard({ label, tasks, editing, onEdit }: { label: Label; tasks: Rec
 
       {editing && (
         <div className="pform">
-          <label className="field-label">
+          <label className="field-label full">
             {t("projects.name")}
             <input
               ref={nameRef}
@@ -190,6 +207,25 @@ function LabelCard({ label, tasks, editing, onEdit }: { label: Label; tasks: Rec
             />
           </label>
           <label className="field-label">
+            {t("projects.ownerEmail")}
+            <input
+              className="field"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              dir="ltr"
+              value={ownerEmail}
+              placeholder={t("projects.ownerEmailPlaceholder")}
+              onChange={(e) => setOwnerEmail(e.target.value)}
+              onBlur={async (e) => {
+                const v = e.target.value.trim();
+                if (v === (label.ownerEmail ?? "")) return;
+                if (!(await updateLabel(label.id, { ownerEmail: v || null }))) setOwnerEmail(label.ownerEmail ?? "");
+              }}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+          </label>
+          <label className="field-label">
             {t("projects.start")}
             <input type="date" className="field" value={label.startDate ?? ""} onChange={(e) => updateLabel(label.id, { startDate: e.target.value || null })} />
           </label>
@@ -199,19 +235,7 @@ function LabelCard({ label, tasks, editing, onEdit }: { label: Label; tasks: Rec
           </label>
           <div className="field-label full">
             <span id={`color-${label.id}`}>{t("projects.color")}</span>
-            <div className="swatches" role="radiogroup" aria-labelledby={`color-${label.id}`}>
-              {LABEL_PALETTE.map((c) => (
-                <button
-                  key={c}
-                  role="radio"
-                  aria-checked={label.color === c}
-                  aria-label={c}
-                  className={`swatch ${label.color === c ? "on" : ""}`}
-                  style={{ background: c }}
-                  onClick={() => updateLabel(label.id, { color: c })}
-                />
-              ))}
-            </div>
+            <ColorSwatches colors={LABEL_PALETTE} value={label.color} labelledBy={`color-${label.id}`} onPick={(c) => updateLabel(label.id, { color: c })} />
           </div>
           <button className="btn-link full" style={{ justifySelf: "start", paddingInline: 0 }} onClick={() => deleteLabel(label.id)}>
             {t("projects.delete")}

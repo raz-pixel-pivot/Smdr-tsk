@@ -1,19 +1,17 @@
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
-import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { db } from "@/db";
-import { tasks } from "@/db/schema";
 import { MAX_FILE_BYTES } from "@/lib/limits";
-import { requireUser } from "@/server/auth";
+import { requireAccess } from "@/server/access";
+import { requireUser, type Me } from "@/server/auth";
 
 /**
  * Issues short-lived client upload tokens so files go straight from the browser
- * to Vercel Blob (serverless request bodies are capped well below 10 MB).
+ * to the private Vercel Blob store (serverless request bodies are capped well below 10 MB).
  */
 export async function POST(request: Request) {
-  let userId: string;
+  let me: Me;
   try {
-    userId = await requireUser();
+    me = await requireUser();
   } catch {
     return NextResponse.json({ error: "Not allowed" }, { status: 401 });
   }
@@ -26,11 +24,7 @@ export async function POST(request: Request) {
       onBeforeGenerateToken: async (pathname, clientPayload) => {
         const { taskId } = JSON.parse(clientPayload || "{}") as { taskId?: string };
         if (!taskId || !pathname.startsWith(`tasks/${taskId}/`)) throw new Error("Invalid upload path");
-        const own = await db
-          .select({ id: tasks.id })
-          .from(tasks)
-          .where(and(eq(tasks.id, taskId), eq(tasks.userId, userId)));
-        if (!own.length) throw new Error("Task not found");
+        await requireAccess(me, taskId, "edit");
         return {
           maximumSizeInBytes: MAX_FILE_BYTES,
           addRandomSuffix: true,
