@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-`.env.local` (never committed) needs `DATABASE_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `ALLOWED_EMAIL`, `BLOB_READ_WRITE_TOKEN` and `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`. `vercel env pull .env.local` fetches the non-sensitive ones; `scripts/set-clerk-keys.sh` sets the Clerk keys locally and on Vercel without printing them.
+`.env.local` (never committed) needs `DATABASE_URL`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `ALLOWED_EMAIL` (comma-separated), `BLOB_READ_WRITE_TOKEN` and `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`. `vercel env pull .env.local` fetches the non-sensitive ones; `scripts/set-clerk-keys.sh` sets the Clerk keys locally and on Vercel without printing them.
 
 `DEV_AUTH_BYPASS=1` in `.env.local` skips sign-in under `npm run dev` only, using a separate `dev-local` user. It is ignored in production builds.
 

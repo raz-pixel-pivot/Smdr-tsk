@@ -16,14 +16,18 @@ export async function checkUser(): Promise<{ userId: string | null; allowed: boo
   const hit = cache.get(userId);
   if (hit && Date.now() - hit.at < TTL) return { userId, allowed: hit.allowed, email: hit.email };
 
-  const allowedEmail = (process.env.ALLOWED_EMAIL || "").trim().toLowerCase();
+  // Comma-separated list of addresses.
+  const allowedEmails = (process.env.ALLOWED_EMAIL || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
   const user = await (await clerkClient()).users.getUser(userId);
   // Only verified addresses count, so nobody can claim the allowed email without proving it.
   const emails = user.emailAddresses
     .filter((e) => e.verification?.status === "verified")
     .map((e) => e.emailAddress.toLowerCase());
   const primary = user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId)?.emailAddress ?? emails[0] ?? "";
-  const allowed = !!allowedEmail && emails.includes(allowedEmail);
+  const allowed = emails.some((e) => allowedEmails.includes(e));
   cache.set(userId, { allowed, email: primary, at: Date.now() });
   return { userId, allowed, email: primary };
 }
